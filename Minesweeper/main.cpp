@@ -17,6 +17,7 @@
 using namespace std;
 
 int field[16][16];
+int totalSafeCells = 0, revealedCells = 0;
 
 struct Rectangle {
     SDL_FRect rect;
@@ -29,6 +30,8 @@ struct Bavel {
     SDL_FRect rect;
     int index[2];
     string label;
+    bool revealed = false;
+    bool flag = false;
 };
 
 struct Text {
@@ -112,7 +115,6 @@ void fillTriangle(SDL_Renderer* r, Triangle t)
 {
     SDL_SetRenderDrawColor(r, t.color.r, t.color.g, t.color.b, t.color.a);
 
-    // Сортуємо точки по Y
     if (t.p2.y < t.p1.y) swap(t.p1, t.p2);
     if (t.p3.y < t.p1.y) swap(t.p1, t.p3);
     if (t.p3.y < t.p2.y) swap(t.p2, t.p3);
@@ -184,6 +186,17 @@ void calculateNumbers(int width, int height) {
             field[y][x] = count;
         }
     }
+    int mineCount = 0;
+    for(int i = 0;i<16;i++){
+        for(int j = 0;j<16;j++){
+            if(field[i][j] == -1){
+                mineCount++;
+            }
+        }
+    }
+    totalSafeCells = 16 * 16 - mineCount;
+    cout<<totalSafeCells<<endl;
+    cout<<mineCount<<endl;
 }
 
 void drawBevel(SDL_Renderer* renderer, Bavel bvl, bool pressed)
@@ -260,6 +273,32 @@ void drawFlags(SDL_Renderer* renderer,TTF_Font* font ,Bavel bvl){
     drawText(renderer, font, txt);
 }
 
+void revealCell(int gx, int gy, vector<Bavel>& buttons, int field[16][16],
+                vector<Rectangle>& mines, int& revealedCells) {
+
+    Bavel& btn = buttons[gy * 16 + gx];
+
+    if (btn.revealed) return;
+
+    btn.revealed = true;
+    revealedCells++;
+
+    SDL_Color color = {191,191,191,255};
+    mines.push_back({btn.rect, color, 0.0f, to_string(field[gy][gx])});
+
+    if (field[gy][gx] == 0) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                int nx = gx + dx;
+                int ny = gy + dy;
+                if (nx >= 0 && nx < 16 && ny >= 0 && ny < 16) {
+                    revealCell(nx, ny, buttons, field, mines, revealedCells);
+                }
+            }
+        }
+    }
+}
+
 int main(int argc, const char * argv[]) {
     srand(time_t(0));
     calculateNumbers(16, 16);
@@ -305,11 +344,6 @@ int main(int argc, const char * argv[]) {
     Rectangle rectangleScreen[] = {
         {{398,42,104,39},{0,0,0,255},0.0f,"Timer"}
     };
-    Text timerText[] = {
-        {{403,46},{255,0,0,255},"Text","0"},
-        {{435,46},{255,0,0,255},"Text","0"},
-        {{467,46},{255,0,0,255},"Text","0"}
-    };
     
     Bavel bavelBackground = {0,0,550,700};
     Bavel bavelMenu = {15,20,520,93};
@@ -320,7 +354,7 @@ int main(int argc, const char * argv[]) {
     vector<Bavel> flags;
     for(int i = 0;i<16;i++){
         for(int j = 0;j<16;j++){
-            buttons.push_back({{static_cast<float>(19 + (32 * i)),static_cast<float>(144 + (32 * j)),32,32},{i,j},"Btn"});
+            buttons.push_back({{static_cast<float>(19 + (32 * i)),static_cast<float>(144 + (32 * j)),32,32},{i,j},"Btn",false});
         }
     }
     
@@ -333,18 +367,42 @@ int main(int argc, const char * argv[]) {
             if (event.type == SDL_EVENT_QUIT)
                 running = false;
             else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
-                SDL_Color color = {191,191,191,255};
-                for(Bavel btn : buttons){
-                    if (isButtonClicked(btn, mouseX, mouseY)) {
-                        mines.push_back({btn.rect,color,0.0f,to_string(field[btn.index[0]][btn.index[1]])});
+                for(Bavel& btn : buttons){
+                    if (isButtonClicked(btn, mouseX, mouseY) && !btn.revealed) {
+                        int gy = btn.index[0];
+                        int gx = btn.index[1];
+
+                        if (field[gy][gx] == -1) {
+                            cout << "Lose" << endl;
+                            running = false;
+                            break;
+                        }
+
+                        revealCell(gx, gy, buttons, field, mines, revealedCells);
+                        break;
                     }
                 }
             }else if (event.type == SDL_EVENT_KEY_DOWN) {
                 SDL_Keycode key = event.key.key;
                 if (key == SDLK_SPACE) {
-                    for(Bavel btn : buttons){
+                    for(Bavel& btn : buttons){
                         if (isButtonClicked(btn, mouseX, mouseY)) {
-                            flags.push_back({btn.rect.x,btn.rect.y,32,32});
+                            if(btn.revealed == false){
+                                flags.push_back({btn.rect.x,btn.rect.y,32,32});
+                                btn.revealed = true;
+                                btn.flag = true;
+                                break;
+                            }else if(btn.flag == true){
+                                btn.revealed = false;
+                                btn.flag = false;
+
+                                for (int f = 0; f < flags.size(); f++) {
+                                    if (flags[f].rect.x == btn.rect.x && flags[f].rect.y == btn.rect.y) {
+                                        flags.erase(flags.begin() + f);
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
                 }else if(key == SDLK_R){
@@ -363,6 +421,8 @@ int main(int argc, const char * argv[]) {
         SDL_SetRenderDrawColor(renderer, 191, 191, 191, 255);
         SDL_RenderClear(renderer);
         
+        int counter = totalSafeCells - revealedCells;
+        Text timerText = {{403,46},{255,0,0,255},"Text",to_string(counter)};
         
         drawBevel(renderer, bavelBackground,true);
         drawBevel(renderer, bavelMenu, false);
@@ -370,9 +430,7 @@ int main(int argc, const char * argv[]) {
         for(Rectangle rec : rectangleScreen){
             drawRectangle(renderer, rec);
         }
-        for(Text txt : timerText){
-            drawText(renderer,font30, txt);
-        }
+        drawText(renderer,font30, timerText);
         for(Bavel btn : buttons){
             if(mouseX >= btn.rect.x && mouseY >= btn.rect.y && mouseX <  btn.rect.x + btn.rect.w && mouseY <  btn.rect.y + btn.rect.h){
                 drawBevel(renderer, btn, false);
@@ -387,6 +445,11 @@ int main(int argc, const char * argv[]) {
             drawFlags(renderer,font10, bvl);
         }
         drawText(renderer, font10, textScreen10);
+        
+        if (revealedCells == totalSafeCells) {
+            cout << "YOU WIN!" << endl;
+            running = false;
+        }
         
         SDL_RenderPresent(renderer);
         SDL_Delay(32);
