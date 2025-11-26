@@ -17,7 +17,7 @@
 using namespace std;
 
 int field[16][16];
-int totalSafeCells = 0, revealedCells = 0;
+int totalSafeCells = 0, revealedCells = 0,counter = 0;
 
 struct Rectangle {
     SDL_FRect rect;
@@ -75,10 +75,6 @@ void drawRectangle(SDL_Renderer* renderer,const Rectangle &rct) {
             }
         }
     }
-}
-
-void handleButtonClick(const string& label) {
-    //
 }
 
 bool isButtonClicked(const Bavel& button, float x, float y) {
@@ -148,7 +144,6 @@ void fillTriangle(SDL_Renderer* r, Triangle t)
 }
 
 void fillField(){
-    //int mines = 10;
     int chanse;
     for(int i = 0;i<16;i++){
         for(int j = 0;j<16;j++){
@@ -195,8 +190,7 @@ void calculateNumbers(int width, int height) {
         }
     }
     totalSafeCells = 16 * 16 - mineCount;
-    cout<<totalSafeCells<<endl;
-    cout<<mineCount<<endl;
+    mineCount = 0;
 }
 
 void drawBevel(SDL_Renderer* renderer, Bavel bvl, bool pressed)
@@ -257,18 +251,10 @@ void drawMines(SDL_Renderer* renderer,TTF_Font* font ,Rectangle btn){
     };
     Text txt;
     if(stoi(btn.label) > 0 && stoi(btn.label) < 9){
-        txt = {{btn.rect.x + 10,btn.rect.y + 10},colors[stoi(btn.label)-1],"Text",btn.label};
+        txt = {{btn.rect.x + 6,btn.rect.y + 6},colors[stoi(btn.label)-1],"Text",btn.label};
     }else if(btn.label == "-1"){
-        txt = {{btn.rect.x + 10,btn.rect.y + 10},{0,0,0,255},"Text","M"};
+        txt = {{btn.rect.x + 6,btn.rect.y + 6},{0,0,0,255},"Text","M"};
     }
-    
-    drawText(renderer, font, txt);
-}
-
-void drawFlags(SDL_Renderer* renderer,TTF_Font* font ,Bavel bvl){
-    drawBevel(renderer, bvl, true);
-    Text txt;
-    txt = {{bvl.rect.x + 10,bvl.rect.y + 10},{10,10,10,255},"Text","F"};
     
     drawText(renderer, font, txt);
 }
@@ -300,7 +286,7 @@ void revealCell(int gx, int gy, vector<Bavel>& buttons, int field[16][16],
 }
 
 int main(int argc, const char * argv[]) {
-    srand(time_t(0));
+    srand(time(0));
     calculateNumbers(16, 16);
     SDL_Event event;
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -318,20 +304,29 @@ int main(int argc, const char * argv[]) {
     SDL_Renderer* renderer = SDL_CreateRenderer(window, nullptr);
     
     string basePath = SDL_GetBasePath();
-    string fullPath = basePath + "Assets/icon.bmp";
-    SDL_Surface* icon = SDL_LoadBMP(fullPath.c_str());
+    vector<SDL_Texture*> imageTexture;
+    
+    string iconPath = basePath + "Assets/icon.bmp";
+    string minePath = basePath + "Assets/mine.bmp";
+    string flagPath = basePath + "Assets/flag.bmp";
+    
+    SDL_Surface* icon = SDL_LoadBMP(iconPath.c_str());
+    SDL_Surface* mine = SDL_LoadBMP(minePath.c_str());
+    imageTexture.push_back(SDL_CreateTextureFromSurface(renderer, mine));
+    SDL_Surface* flag = SDL_LoadBMP(flagPath.c_str());
+    imageTexture.push_back(SDL_CreateTextureFromSurface(renderer, flag));
     if (icon) {
         SDL_SetWindowIcon(window, icon);
         SDL_DestroySurface(icon);
     } else {
         SDL_Log("Icon not found: %s", SDL_GetError());
     }
-
     
     string fontPath = basePath + "Assets/PressStart2P-Regular.ttf";
-    TTF_Font* font10 = TTF_OpenFont(fontPath.c_str(), 15);
-    TTF_Font* font30 = TTF_OpenFont(fontPath.c_str(), 32);
-    if (!font10) {
+    TTF_Font* fontText = TTF_OpenFont(fontPath.c_str(), 15);
+    TTF_Font* fontMines = TTF_OpenFont(fontPath.c_str(), 32);
+    TTF_Font* fontButtons = TTF_OpenFont(fontPath.c_str(), 20);
+    if (!fontText && !fontMines && !fontButtons) {
         SDL_Log("FONT Failure!");
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
@@ -351,14 +346,14 @@ int main(int argc, const char * argv[]) {
     
     vector<Bavel> buttons;
     vector<Rectangle> mines;
-    vector<Bavel> flags;
+    vector<Image> flags;
     for(int i = 0;i<16;i++){
         for(int j = 0;j<16;j++){
             buttons.push_back({{static_cast<float>(19 + (32 * i)),static_cast<float>(144 + (32 * j)),32,32},{i,j},"Btn",false});
         }
     }
     
-    string value = "0";
+    string endGame = "";
     bool running = true;
     float mouseX, mouseY;
     while (running) {
@@ -366,15 +361,14 @@ int main(int argc, const char * argv[]) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT)
                 running = false;
-            else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+            else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && endGame.empty()) {
                 for(Bavel& btn : buttons){
                     if (isButtonClicked(btn, mouseX, mouseY) && !btn.revealed) {
                         int gy = btn.index[0];
                         int gx = btn.index[1];
 
                         if (field[gy][gx] == -1) {
-                            cout << "Lose" << endl;
-                            running = false;
+                            endGame = "lose";
                             break;
                         }
 
@@ -384,7 +378,7 @@ int main(int argc, const char * argv[]) {
                 }
             }else if (event.type == SDL_EVENT_KEY_DOWN) {
                 SDL_Keycode key = event.key.key;
-                if (key == SDLK_SPACE) {
+                if (key == SDLK_SPACE && endGame.empty()) {
                     for(Bavel& btn : buttons){
                         if (isButtonClicked(btn, mouseX, mouseY)) {
                             if(btn.revealed == false){
@@ -407,8 +401,10 @@ int main(int argc, const char * argv[]) {
                     }
                 }else if(key == SDLK_R){
                     mines.clear();
+                    revealedCells = 0;
                     buttons.clear();
                     flags.clear();
+                    endGame = "";
                     calculateNumbers(16, 16);
                     for(int i = 0;i<16;i++){
                         for(int j = 0;j<16;j++){
@@ -421,7 +417,7 @@ int main(int argc, const char * argv[]) {
         SDL_SetRenderDrawColor(renderer, 191, 191, 191, 255);
         SDL_RenderClear(renderer);
         
-        int counter = totalSafeCells - revealedCells;
+        counter = totalSafeCells - revealedCells;
         Text timerText = {{403,46},{255,0,0,255},"Text",to_string(counter)};
         
         drawBevel(renderer, bavelBackground,true);
@@ -430,7 +426,7 @@ int main(int argc, const char * argv[]) {
         for(Rectangle rec : rectangleScreen){
             drawRectangle(renderer, rec);
         }
-        drawText(renderer,font30, timerText);
+        drawText(renderer,fontMines, timerText);
         for(Bavel btn : buttons){
             if(mouseX >= btn.rect.x && mouseY >= btn.rect.y && mouseX <  btn.rect.x + btn.rect.w && mouseY <  btn.rect.y + btn.rect.h){
                 drawBevel(renderer, btn, false);
@@ -439,23 +435,41 @@ int main(int argc, const char * argv[]) {
             }
         }
         for(Rectangle rec : mines){
-            drawMines(renderer,font10, rec);
+            drawMines(renderer,fontButtons, rec);
         }
-        for(Bavel bvl : flags){
-            drawFlags(renderer,font10, bvl);
+        for(Image img : flags){
+            drawImage(renderer, imageTexture[1], img);
         }
-        drawText(renderer, font10, textScreen10);
+        drawText(renderer, fontText, textScreen10);
         
         if (revealedCells == totalSafeCells) {
             cout << "YOU WIN!" << endl;
-            running = false;
+            Bavel bavelEnd = {15,304,520,97};
+            Text textEnd = {{143,335},{0,255,0,255},"Text","You Win!"};
+            drawBevel(renderer, bavelEnd, true);
+            drawText(renderer, fontMines, textEnd);
+        }else if(endGame == "lose"){
+            for(int y = 0; y < 16; y++){
+                for(int x = 0; x < 16; x++){
+                    if(field[y][x] == -1){
+                        int idx = y * 16 + x;
+                        const Bavel& b = buttons[idx];
+                        drawImage(renderer, imageTexture[0], {b.rect.x, b.rect.y, 32, 32});
+                    }
+                }
+            }
+            Bavel bavelEnd = {15,304,520,97};
+            Text textEnd = {{143,335},{255,0,0,255},"Text","You Lose!"};
+            drawBevel(renderer, bavelEnd, true);
+            drawText(renderer, fontMines, textEnd);
         }
         
         SDL_RenderPresent(renderer);
         SDL_Delay(32);
     }
-    TTF_CloseFont(font10);
-    TTF_CloseFont(font30);
+    TTF_CloseFont(fontText);
+    TTF_CloseFont(fontMines);
+    TTF_CloseFont(fontButtons);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     TTF_Quit();
