@@ -5,7 +5,9 @@
 //  Created by Fev1L on 18.11.2025.
 //
 
+#define SDL_MAIN_USE_CALLBACKS
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <iostream>
 #include <vector>
@@ -14,22 +16,20 @@
 #include <sstream>
 #include <iomanip>
 #include <cstdlib>
-using namespace std;
 
-int field[16][16];
 int totalSafeCells = 0, revealedCells = 0,counter = 0;
 
 struct Rectangle {
     SDL_FRect rect;
     SDL_Color color;
     float radius;
-    string label;
+    std::string label;
 };
 
 struct Bavel {
     SDL_FRect rect;
     int index[2];
-    string label;
+    std::string label;
     bool revealed = false;
     bool flag = false;
 };
@@ -37,8 +37,8 @@ struct Bavel {
 struct Text {
     SDL_FRect rect;
     SDL_Color color;
-    string label;
-    string textIn;
+    std::string label;
+    std::string textIn;
 };
 
 struct Triangle {
@@ -51,7 +51,7 @@ struct Triangle {
 struct Image {
     SDL_FRect rect;
     const char* label;
-    string texture;
+    std::string texture;
 };
 
 void drawRectangle(SDL_Renderer* renderer,const Rectangle &rct) {
@@ -111,12 +111,12 @@ void fillTriangle(SDL_Renderer* r, Triangle t)
 {
     SDL_SetRenderDrawColor(r, t.color.r, t.color.g, t.color.b, t.color.a);
 
-    if (t.p2.y < t.p1.y) swap(t.p1, t.p2);
-    if (t.p3.y < t.p1.y) swap(t.p1, t.p3);
-    if (t.p3.y < t.p2.y) swap(t.p2, t.p3);
+    if (t.p2.y < t.p1.y) std::swap(t.p1, t.p2);
+    if (t.p3.y < t.p1.y) std::swap(t.p1, t.p3);
+    if (t.p3.y < t.p2.y) std::swap(t.p2, t.p3);
 
     auto interp = [&](SDL_FPoint a, SDL_FPoint b){
-        vector<float> vals;
+        std::vector<float> vals;
         int dy = int(b.y - a.y);
         if (dy < 1) return vals;
         vals.reserve(dy);
@@ -137,13 +137,13 @@ void fillTriangle(SDL_Renderer* r, Triangle t)
     for (int i = 0; i < total; i++) {
         float xL = x12[i];
         float xR = x13[i];
-        if (xL > xR) swap(xL, xR);
+        if (xL > xR) std::swap(xL, xR);
         float y = t.p1.y + i;
         SDL_RenderLine(r, xL, y, xR, y);
     }
 }
 
-void fillField(){
+void fillField(int field[16][16]){
     int chanse;
     for(int i = 0;i<16;i++){
         for(int j = 0;j<16;j++){
@@ -157,8 +157,8 @@ void fillField(){
     }
 }
 
-void calculateNumbers(int width, int height) {
-    fillField();
+void calculateNumbers(int width, int height, int field[16][16]) {
+    fillField(field);
     int dx[8] = {-1,-1,-1,0,0,1,1,1};
     int dy[8] = {-1,0,1,-1,1,-1,0,1};
 
@@ -259,8 +259,8 @@ void drawMines(SDL_Renderer* renderer,TTF_Font* font ,Rectangle btn){
     drawText(renderer, font, txt);
 }
 
-void revealCell(int gx, int gy, vector<Bavel>& buttons, int field[16][16],
-                vector<Rectangle>& mines, int& revealedCells) {
+void revealCell(int gx, int gy, std::vector<Bavel>& buttons, int field[16][16],
+                std::vector<Rectangle>& mines, int& revealedCells) {
 
     Bavel& btn = buttons[gy * 16 + gx];
 
@@ -270,7 +270,7 @@ void revealCell(int gx, int gy, vector<Bavel>& buttons, int field[16][16],
     revealedCells++;
 
     SDL_Color color = {191,191,191,255};
-    mines.push_back({btn.rect, color, 0.0f, to_string(field[gy][gx])});
+    mines.push_back({btn.rect, color, 0.0f, std::to_string(field[gy][gx])});
 
     if (field[gy][gx] == 0) {
         for (int dx = -1; dx <= 1; dx++) {
@@ -285,194 +285,249 @@ void revealCell(int gx, int gy, vector<Bavel>& buttons, int field[16][16],
     }
 }
 
-int main(int argc, const char * argv[]) {
+struct Game {
+    SDL_Window* window;
+    SDL_Renderer* renderer;
+
+    int field[16][16];
+    std::vector<Bavel> buttons;
+    std::vector<Rectangle> mines;
+    std::vector<Image> flags;
+    std::vector<SDL_Texture*> imageTexture;
+
+    std::string endGame = "";
+    bool running;
+};
+
+struct AppState {
+    Rectangle rectangleScreen;
+    Text textScreen10;
+    Bavel bavelBackground;
+    Bavel bavelMenu;
+    Bavel bavelGame;
+};
+
+struct Fonts {
+    TTF_Font* fontText;
+    TTF_Font* fontMines;
+    TTF_Font* fontButtons;
+};
+
+struct App {
+    Game* game;
+    AppState* state;
+    Fonts* fonts;
+};
+
+//=================================================================
+SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]){
     srand(time(0));
-    calculateNumbers(16, 16);
-    SDL_Event event;
+    App* app = new App();
+    app->game = new Game();
+    app->state = new AppState();
+    app->fonts = new Fonts();
+    
+    calculateNumbers(16, 16,app->game->field);
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("Failure!");
-        return -1;
+        return SDL_APP_FAILURE;
     }
     
     if (!TTF_Init()) {
         SDL_Log("TTF_Init Failure!");
         SDL_Quit();
-        return 1;
+        return SDL_APP_FAILURE;
     }
-    SDL_Window * window;
-    window = SDL_CreateWindow("Minesweeper by Fev1L v.1", 550, 700, SDL_WINDOW_OPENGL );
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, nullptr);
+    app->game->window = SDL_CreateWindow("Minesweeper by Fev1L v.1", 550, 700, SDL_WINDOW_OPENGL );
+    app->game->renderer = SDL_CreateRenderer(app->game->window, nullptr);
     
-    string basePath = SDL_GetBasePath();
-    vector<SDL_Texture*> imageTexture;
+    std::string basePath = SDL_GetBasePath();
     
-    string iconPath = basePath + "Assets/icon.bmp";
-    string minePath = basePath + "Assets/mine.bmp";
-    string flagPath = basePath + "Assets/flag.bmp";
+    std::string iconPath = basePath + "Assets/icon.bmp";
+    std::string minePath = basePath + "Assets/mine.bmp";
+    std::string flagPath = basePath + "Assets/flag.bmp";
     
     SDL_Surface* icon = SDL_LoadBMP(iconPath.c_str());
     SDL_Surface* mine = SDL_LoadBMP(minePath.c_str());
-    imageTexture.push_back(SDL_CreateTextureFromSurface(renderer, mine));
+    app->game->imageTexture.push_back(SDL_CreateTextureFromSurface(app->game->renderer, mine));
     SDL_Surface* flag = SDL_LoadBMP(flagPath.c_str());
-    imageTexture.push_back(SDL_CreateTextureFromSurface(renderer, flag));
+    app->game->imageTexture.push_back(SDL_CreateTextureFromSurface(app->game->renderer, flag));
     if (icon) {
-        SDL_SetWindowIcon(window, icon);
+        SDL_SetWindowIcon(app->game->window, icon);
         SDL_DestroySurface(icon);
     } else {
         SDL_Log("Icon not found: %s", SDL_GetError());
     }
     
-    string fontPath = basePath + "Assets/PressStart2P-Regular.ttf";
-    TTF_Font* fontText = TTF_OpenFont(fontPath.c_str(), 15);
-    TTF_Font* fontMines = TTF_OpenFont(fontPath.c_str(), 32);
-    TTF_Font* fontButtons = TTF_OpenFont(fontPath.c_str(), 20);
-    if (!fontText && !fontMines && !fontButtons) {
+    std::string fontPath = basePath + "Assets/PressStart2P-Regular.ttf";
+    app->fonts->fontText = TTF_OpenFont(fontPath.c_str(), 15);
+    app->fonts->fontMines = TTF_OpenFont(fontPath.c_str(), 32);
+    app->fonts->fontButtons = TTF_OpenFont(fontPath.c_str(), 20);
+    if (!app->fonts->fontText && !app->fonts->fontMines && !app->fonts->fontButtons) {
         SDL_Log("FONT Failure!");
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
+        SDL_DestroyRenderer(app->game->renderer);
+        SDL_DestroyWindow(app->game->window);
         TTF_Quit();
         SDL_Quit();
-        return 1;
+        return SDL_APP_FAILURE;
     }
 
-    Text textScreen10 = {{30,36},{88,86,88,255},"Text","Whilst hovering over a block, press ‘space’ to place a flag. Press ‘r’ to restart your game."};
-    Rectangle rectangleScreen[] = {
-        {{398,42,104,39},{0,0,0,255},0.0f,"Timer"}
-    };
+    app->state->textScreen10 = {{30,36},{88,86,88,255},"Text","Whilst hovering over a block, press ‘space’ to place a flag. Press ‘r’ to restart your game."};
+    app->state->rectangleScreen = {{398,42,104,39},{0,0,0,255},0.0f,"Timer"};
+    app->state->bavelBackground = {0,0,550,700};
+    app->state->bavelMenu = {15,20,520,93};
+    app->state->bavelGame = {15,140,520,520};
     
-    Bavel bavelBackground = {0,0,550,700};
-    Bavel bavelMenu = {15,20,520,93};
-    Bavel bavelGame = {15,140,520,520};
-    
-    vector<Bavel> buttons;
-    vector<Rectangle> mines;
-    vector<Image> flags;
     for(int i = 0;i<16;i++){
         for(int j = 0;j<16;j++){
-            buttons.push_back({{static_cast<float>(19 + (32 * i)),static_cast<float>(144 + (32 * j)),32,32},{i,j},"Btn",false});
+            app->game->buttons.push_back({{static_cast<float>(19 + (32 * i)),static_cast<float>(144 + (32 * j)),32,32},{i,j},"Btn",false});
         }
     }
     
-    string endGame = "";
+    app->game->running = true;
+    *appstate = app;
+    return SDL_APP_CONTINUE;
+}
+//=================================================================
+SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event){
+    App* app = (App*)appstate;
+    Game* game = app->game;
     bool running = true;
     float mouseX, mouseY;
-    while (running) {
-        SDL_GetMouseState(&mouseX, &mouseY);
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT)
-                running = false;
-            else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && endGame.empty()) {
-                for(Bavel& btn : buttons){
-                    if (isButtonClicked(btn, mouseX, mouseY) && !btn.revealed) {
-                        int gy = btn.index[0];
-                        int gx = btn.index[1];
+    SDL_GetMouseState(&mouseX, &mouseY);
+    if (event->type == SDL_EVENT_QUIT)
+        return SDL_APP_SUCCESS;
+    else if (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN && game->endGame.empty()) {
+        for(Bavel& btn : game->buttons){
+            if (isButtonClicked(btn, mouseX, mouseY) && !btn.revealed) {
+                int gy = btn.index[0];
+                int gx = btn.index[1];
 
-                        if (field[gy][gx] == -1) {
-                            endGame = "lose";
-                            break;
-                        }
-
-                        revealCell(gx, gy, buttons, field, mines, revealedCells);
-                        break;
-                    }
+                if (game->field[gy][gx] == -1) {
+                    game->endGame = "lose";
+                    break;
                 }
-            }else if (event.type == SDL_EVENT_KEY_DOWN) {
-                SDL_Keycode key = event.key.key;
-                if (key == SDLK_SPACE && endGame.empty()) {
-                    for(Bavel& btn : buttons){
-                        if (isButtonClicked(btn, mouseX, mouseY)) {
-                            if(btn.revealed == false){
-                                flags.push_back({btn.rect.x,btn.rect.y,32,32});
-                                btn.revealed = true;
-                                btn.flag = true;
-                                break;
-                            }else if(btn.flag == true){
-                                btn.revealed = false;
-                                btn.flag = false;
 
-                                for (int f = 0; f < flags.size(); f++) {
-                                    if (flags[f].rect.x == btn.rect.x && flags[f].rect.y == btn.rect.y) {
-                                        flags.erase(flags.begin() + f);
-                                        break;
-                                    }
-                                }
+                revealCell(gx, gy, game->buttons, game->field, game->mines, revealedCells);
+                break;
+            }
+        }
+    }else if (event->type == SDL_EVENT_KEY_DOWN) {
+        SDL_Keycode key = event->key.key;
+        if (key == SDLK_SPACE && game->endGame.empty()) {
+            for(Bavel& btn : game->buttons){
+                if (isButtonClicked(btn, mouseX, mouseY)) {
+                    if(btn.revealed == false){
+                        game->flags.push_back({btn.rect.x,btn.rect.y,32,32});
+                        btn.revealed = true;
+                        btn.flag = true;
+                        break;
+                    }else if(btn.flag == true){
+                        btn.revealed = false;
+                        btn.flag = false;
+
+                        for (int f = 0; f < game->flags.size(); f++) {
+                            if (game->flags[f].rect.x == btn.rect.x && game->flags[f].rect.y == btn.rect.y) {
+                                game->flags.erase(game->flags.begin() + f);
+                                break;
                             }
                         }
                     }
-                }else if(key == SDLK_R){
-                    mines.clear();
-                    revealedCells = 0;
-                    buttons.clear();
-                    flags.clear();
-                    endGame = "";
-                    calculateNumbers(16, 16);
-                    for(int i = 0;i<16;i++){
-                        for(int j = 0;j<16;j++){
-                            buttons.push_back({{static_cast<float>(19 + (32 * i)),static_cast<float>(144 + (32 * j)),32,32},{i,j},"Btn"});
-                        }
-                    }
+                }
+            }
+        }else if(key == SDLK_R){
+            game->mines.clear();
+            revealedCells = 0;
+            game->buttons.clear();
+            game->flags.clear();
+            game->endGame = "";
+            calculateNumbers(16, 16, game->field);
+            for(int i = 0;i<16;i++){
+                for(int j = 0;j<16;j++){
+                    game->buttons.push_back({{static_cast<float>(19 + (32 * i)),static_cast<float>(144 + (32 * j)),32,32},{i,j},"Btn"});
                 }
             }
         }
-        SDL_SetRenderDrawColor(renderer, 191, 191, 191, 255);
-        SDL_RenderClear(renderer);
-        
-        counter = totalSafeCells - revealedCells;
-        Text timerText = {{403,46},{255,0,0,255},"Text",to_string(counter)};
-        
-        drawBevel(renderer, bavelBackground,true);
-        drawBevel(renderer, bavelMenu, false);
-        drawBevel(renderer, bavelGame, false);
-        for(Rectangle rec : rectangleScreen){
-            drawRectangle(renderer, rec);
-        }
-        drawText(renderer,fontMines, timerText);
-        for(Bavel btn : buttons){
-            if(mouseX >= btn.rect.x && mouseY >= btn.rect.y && mouseX <  btn.rect.x + btn.rect.w && mouseY <  btn.rect.y + btn.rect.h){
-                drawBevel(renderer, btn, false);
-            }else{
-                drawBevel(renderer, btn, true);
-            }
-        }
-        for(Rectangle rec : mines){
-            drawMines(renderer,fontButtons, rec);
-        }
-        for(Image img : flags){
-            drawImage(renderer, imageTexture[1], img);
-        }
-        drawText(renderer, fontText, textScreen10);
-        
-        if (revealedCells == totalSafeCells) {
-            cout << "YOU WIN!" << endl;
-            Bavel bavelEnd = {15,304,520,97};
-            Text textEnd = {{143,335},{0,255,0,255},"Text","You Win!"};
-            drawBevel(renderer, bavelEnd, true);
-            drawText(renderer, fontMines, textEnd);
-        }else if(endGame == "lose"){
-            for(int y = 0; y < 16; y++){
-                for(int x = 0; x < 16; x++){
-                    if(field[y][x] == -1){
-                        int idx = y * 16 + x;
-                        const Bavel& b = buttons[idx];
-                        drawImage(renderer, imageTexture[0], {b.rect.x, b.rect.y, 32, 32});
-                    }
-                }
-            }
-            Bavel bavelEnd = {15,304,520,97};
-            Text textEnd = {{143,335},{255,0,0,255},"Text","You Lose!"};
-            drawBevel(renderer, bavelEnd, true);
-            drawText(renderer, fontMines, textEnd);
-        }
-        
-        SDL_RenderPresent(renderer);
-        SDL_Delay(32);
     }
-    TTF_CloseFont(fontText);
-    TTF_CloseFont(fontMines);
-    TTF_CloseFont(fontButtons);
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
+    return SDL_APP_CONTINUE;
+}
+//=================================================================
+SDL_AppResult SDL_AppIterate(void* appstate){
+    App* app = (App*)appstate;
+    Game* game = app->game;
+    AppState* state = app->state;
+    Fonts* fonts = app->fonts;
+    
+    float mouseX, mouseY;
+    SDL_GetMouseState(&mouseX, &mouseY);
+    SDL_SetRenderDrawColor(game->renderer, 191, 191, 191, 255);
+    SDL_RenderClear(game->renderer);
+    
+    counter = totalSafeCells - revealedCells;
+    Text timerText = {{403,46},{255,0,0,255},"Text",std::to_string(counter)};
+    
+    drawBevel(game->renderer, state->bavelBackground,true);
+    drawBevel(game->renderer, state->bavelMenu, false);
+    drawBevel(game->renderer, state->bavelGame, false);
+    drawRectangle(game->renderer, state->rectangleScreen);
+    drawText(game->renderer,fonts->fontMines, timerText);
+    for(Bavel btn : game->buttons){
+        if(mouseX >= btn.rect.x && mouseY >= btn.rect.y && mouseX <  btn.rect.x + btn.rect.w && mouseY <  btn.rect.y + btn.rect.h){
+            drawBevel(game->renderer, btn, false);
+        }else{
+            drawBevel(game->renderer, btn, true);
+        }
+    }
+    for(Rectangle rec : game->mines){
+        drawMines(game->renderer,fonts->fontButtons, rec);
+    }
+    for(Image img : game->flags){
+        drawImage(game->renderer, game->imageTexture[1], img);
+    }
+    drawText(game->renderer, fonts->fontText, state->textScreen10);
+    
+    if (revealedCells == totalSafeCells) {
+        std::cout << "YOU WIN!" << std::endl;
+        Bavel bavelEnd = {15,304,520,97};
+        Text textEnd = {{143,335},{0,255,0,255},"Text","You Win!"};
+        drawBevel(game->renderer, bavelEnd, true);
+        drawText(game->renderer, fonts->fontMines, textEnd);
+    }else if(game->endGame == "lose"){
+        for(int y = 0; y < 16; y++){
+            for(int x = 0; x < 16; x++){
+                if(game->field[y][x] == -1){
+                    int idx = y * 16 + x;
+                    const Bavel& b = game->buttons[idx];
+                    drawImage(game->renderer, game->imageTexture[0], {b.rect.x, b.rect.y, 32, 32});
+                }
+            }
+        }
+        Bavel bavelEnd = {15,304,520,97};
+        Text textEnd = {{143,335},{255,0,0,255},"Text","You Lose!"};
+        drawBevel(game->renderer, bavelEnd, true);
+        drawText(game->renderer, fonts->fontMines, textEnd);
+    }
+    
+    SDL_RenderPresent(game->renderer);
+    SDL_Delay(32);
+    return SDL_APP_CONTINUE;
+}
+//=================================================================
+void SDL_AppQuit(void* appstate, SDL_AppResult result){
+    App* app = (App*)appstate;
+    Game* game = app->game;
+    Fonts* fonts = app->fonts;
+    TTF_CloseFont(fonts->fontText);
+    TTF_CloseFont(fonts->fontMines);
+    TTF_CloseFont(fonts->fontButtons);
+    SDL_DestroyRenderer(game->renderer);
+    SDL_DestroyWindow(game->window);
     TTF_Quit();
     SDL_Quit();
-    return EXIT_SUCCESS;
+    
+    delete app->game;
+    delete app->state;
+    delete app->fonts;
+    delete app;
 }
+//=================================================================
